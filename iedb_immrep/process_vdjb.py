@@ -61,6 +61,12 @@ class VDJdbDataset:
             val_columns += ['CDRB1_val', 'CDRB2_val', 'CDRB3_val']
         return validated_file[validated_file[val_columns].all(axis=1)].drop(val_columns, axis=1)
 
+
+    def flag_10X_studies(self, df, exclusion_path=os.path.join(data_path, 'dat/immrep_exclusion.xlsx')):
+        studies = studies_to_flag(exclusion_path, method='VDJdb')
+        df['10X'] = df['reference.id'].isin(studies)
+        return df
+
     def format_for_competition(self, output_path='vdjdb_positives.csv'):
         dedup = {}
         mapping = {"Chain 1": 'A', 'Chain 2': 'B'}
@@ -72,25 +78,32 @@ class VDJdbDataset:
         self.df['unique_id'] = self.df['unique_tcr'] + '_' + self.df['antigen.epitope'] + '_' + self.df[
             'mhc.a']
         self.df['full_seq_unique'] = self.df.apply(
-            lambda x: ':'.join([x[f'TR{mapping[chain]}'] if pd.notna(x[f'TR{mapping[chain]}']) else 'NA' \
-                                for chain in self.chains]), axis=1)
+            lambda x: ':'.join([x[f'TR{mapping[chain]}'] if pd.notna(x[f'TR{mapping[chain]}']) else 'NA' for chain in self.chains]), axis=1)
+        self.df = self.flag_10X_studies(self.df)
         for k, p in self.df.groupby('unique_id'):
             for i, (x, p) in enumerate(p.groupby(f'full_seq_unique')):
                 example = p.iloc[0]
                 receptor_ids = ','.join([str(p) for p in set(p['complex.id'])])
                 reference_ids = ','.join([str(p) for p in set(p['reference.id'])])
+                just_10x = set(p['10X'].unique()).difference({True}) == set()
                 for phla in example['epitope'].split(','):
                     unique_key = generate_hash()
-                    dedup[unique_key] = {'receptor_id': receptor_ids, 'reference': reference_ids,
-                                         'epitope': phla}
+                    dedup[unique_key] = {'receptor_id': receptor_ids, 'references': reference_ids,
+                                         'epitope': phla, 'just_10X':just_10x}
                     dedup[unique_key].update(
                         dict(example[sequence_fields]))
         dedup = pd.DataFrame(dedup).T
         dedup = self.validate(dedup)
         dedup['mhc'] = dedup['epitope'].map(lambda x: x.split('~')[1])
         dedup['epitope'] = dedup['epitope'].map(lambda x: x.split('~')[0])
+        rename_columns = {'epitope': 'Peptide', 'mhc': 'HLA', 'TRAV': 'Va', 'TRBV': 'Vb', 'TRAJ': 'Ja', 'TRBJ': 'Jb',
+                          'CDRA1': 'CDR1a', 'CDRA2': 'CDR2a', 'CDRA3': 'CDR3a', 'CDRB1': 'CDR1b', 'CDRB2': 'CDR2b',
+                          'CDRB3': 'CDR3b', 'TRA': 'TCRa', 'TRB': 'TCRb'}
+        column_order = ['epitope','mhc','TRAV','TRAJ','CDRA1','CDRA2','CDRA3','CDR3a_extended','TRA','TRBV','TRBJ','CDRB1','CDRB2','CDRB3','CDR3b_extended','TRB','references','receptor_id','just_10X']
         self.final_format = dedup
-        self.final_format.to_csv(output_path)
+        self.final_format['CDR3b_extended'] = self.final_format.apply(lambda x: 'C' + x.CDRB3 + 'F' if pd.isna(x['TRB']) else x['TRB'][x['TRB'].index(x['CDRB3']) - 1:x['TRB'].index(x['CDRB3']) + len(x['CDRB3']) + 1], axis=1)
+        self.final_format['CDR3a_extended'] = self.final_format.apply(lambda x: 'C' + x.CDRA3 + 'F' if pd.isna(x['TRA']) else x['TRA'][x['TRA'].index(x['CDRA3']) - 1:x['TRA'].index(x['CDRA3']) + len(x['CDRA3']) + 1], axis=1)
+        self.final_format[column_order].rename(columns=rename_columns).to_csv(output_path, index=False)
 
     def format_airr(self, output_path='vdjdb_positives_airr.tsv'):
         df = self.final_format.copy().reset_index()

@@ -40,10 +40,8 @@ def get_leader_constant_seqs():
     return leaders, constant
 
 
-
 leaders, constants = get_leader_constant_seqs()
 data_path = '/'.join(iedb_immrep.__file__.split('/')[:-1])
-
 
 def get_cdrs(path: str = os.path.join(data_path, 'dat/trv_cdrs.tsv')):
     output = pd.read_csv(path, sep='\t')
@@ -52,9 +50,12 @@ def get_cdrs(path: str = os.path.join(data_path, 'dat/trv_cdrs.tsv')):
     return cdr1s, cdr2s
 
 
-def studies_to_flag(xlsx_path: str = 'immrep_exclusion.xlsx'):
+def studies_to_flag(xlsx_path: str = 'immrep_exclusion.xlsx', method='IEDB'):
     exclude = pd.read_excel(xlsx_path)
-    return set(exclude[exclude['Exclude'] == True]["Reference - IEDB IRI"])
+    if method == 'IEDB':
+        return set(exclude[(exclude['Exclude'] == True)&(exclude['Reference - IEDB IRI'].notna())]["Reference - IEDB IRI"])
+    else:
+        return set(exclude[(exclude['Exclude'] == True)&(exclude['PMID'].notna())]['PMID']).union(set(exclude[(exclude['Exclude'] == True)&(exclude['VDJdb_alias'].notna())]['VDJdb_alias']))
 
 def summarize_counts(df, receptor_key: str = 'Receptor - IEDB Receptor ID', epitope_key: str = 'Epitope - Name'):
     return {'total': df.shape[0], 'receptors': df[receptor_key].nunique(), 'epitopes': df[epitope_key].nunique()}
@@ -221,4 +222,5 @@ def cdrs_from_ndm_file(ndm_path='dat/igblast/internal_data/human/human.ndm.imgt'
         cdr2_aa = translate(cdr2)
         cdrs[p.allele] = {'cdr1_aa': cdr1_aa, 'cdr2_aa': cdr2_aa}
     pd.DataFrame(cdrs).T.reset_index().rename(columns={'index': 'sequence_id'}).to_csv(outf, sep='\t')
+
 
