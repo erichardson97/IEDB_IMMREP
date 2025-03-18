@@ -22,6 +22,9 @@ class VDJdbDataset:
         self.df = pair_by_complex(self.df, columns=self.v_genes + self.j_genes + self.cdr3s, chains=chains)
         for chain in self.chains:
             self.df = self.df.rename(columns={f'cdr3{mapping[chain]}': f'CDR{mapping[chain]}3'})
+            self.df[f'junction_{mapping[chain]}'] = self.df[f'CDR{mapping[chain]}3'].map(tt.junction.standardize)
+            self.df[f'CDR{mapping[chain]}3'] = self.df[f'junction_{mapping[chain]}'].map(lambda x:x[1:-1])
+
         self.cdrs = ['CDRA1', 'CDRA2', 'CDRA3'] if 'Chain 1' in self.chains else []
         self.cdrs += ['CDRB1', 'CDRB2', 'CDRB3'] if 'Chain 2' in self.chains else []
         self.df['epitope'] = self.df['antigen.epitope'] + '~' + self.df['mhc.a']
